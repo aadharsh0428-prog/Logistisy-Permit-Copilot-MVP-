@@ -23,7 +23,7 @@
 # ──────────────────────────────────────────────────────────────────
 
 [build]
-builder = "dockerfile"
+builder = Dockerfile"
 
 [deploy]
 healthcheckTimeout = 30
