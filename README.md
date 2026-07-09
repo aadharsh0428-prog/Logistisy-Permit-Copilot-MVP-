@@ -2,6 +2,8 @@
 
 **Live app:** [https://logistisy-permit-copilot-mvp-production.up.railway.app/](https://logistisy-permit-copilot-mvp-production.up.railway.app/)
 
+![Logistisy Home Page](Logizty_Homepage.png)
+
 AI-assisted workspace that turns heavy-transport (Schwertransport) permit documents into
 structured, actionable data - route restrictions, escort requirements, time windows, and
 a grounded chat assistant that answers questions using only the permit's own text.
