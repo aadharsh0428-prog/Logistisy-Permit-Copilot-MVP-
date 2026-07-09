@@ -12,6 +12,8 @@ Runs on **Google Gemini** for vision-based extraction and grounded chat, with a
 multi-key/multi-model ensemble strategy to stay resilient on the free tier.
 Styled after logistisy.com (navy + gold).
 
+Sample Permit PDF there in the repository for test purposes!
+
 ## Stack
 
 - **Frontend:** React + TypeScript + Vite
