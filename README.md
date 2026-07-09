@@ -42,6 +42,8 @@ and on a 429 (rate limited) or 503 (overloaded) response, it automatically retri
 against the next key/model in the pool with exponential backoff, rather than
 surfacing an error to the user. Full rationale in `SYSTEM_DESIGN.md`.
 
+![Logistisy Chat Page](Logizty_Web_App_UI.png)
+
 ## Architecture
 
 ```
