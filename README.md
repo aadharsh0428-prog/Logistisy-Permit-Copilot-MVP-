@@ -1,7 +1,9 @@
 # Logistisy Permit Copilot (MVP)
 
+**Live app:** [https://logistisy-permit-copilot-mvp-production.up.railway.app/](https://logistisy-permit-copilot-mvp-production.up.railway.app/)
+
 AI-assisted workspace that turns heavy-transport (Schwertransport) permit documents into
-structured, actionable data — route restrictions, escort requirements, time windows, and
+structured, actionable data - route restrictions, escort requirements, time windows, and
 a grounded chat assistant that answers questions using only the permit's own text.
 
 Runs on **Google Gemini** for vision-based extraction and grounded chat, with a
