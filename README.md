@@ -4,8 +4,9 @@ AI-assisted workspace that turns heavy-transport (Schwertransport) permit docume
 structured, actionable data — route restrictions, escort requirements, time windows, and
 a grounded chat assistant that answers questions using only the permit's own text.
 
-Runs entirely on **local, open-source LLMs via Ollama** — no API keys, no cloud cost,
-no data leaving your machine. Styled after logistisy.com (navy + gold).
+Runs on **Google Gemini** for vision-based extraction and grounded chat, with a
+multi-key/multi-model ensemble strategy to stay resilient on the free tier.
+Styled after logistisy.com (navy + gold).
 
 ## Stack
 
@@ -13,28 +14,37 @@ no data leaving your machine. Styled after logistisy.com (navy + gold).
 - **Backend:** FastAPI (Python)
 - **Database:** PostgreSQL
 - **Queue/cache:** Redis
-- **AI (fully local):**
-  - **Llama 3.2 Vision** (via Ollama) — reads the permit image/PDF page directly and
+- **AI:**
+  - **Gemini 2.0/2.5 Flash** — reads the permit image/PDF page directly and
     extracts structured JSON in a single call (OCR + extraction combined)
-  - **Llama 3.1** (via Ollama) — grounded Q&A over the extracted permit text
-  - Swap `OLLAMA_VISION_MODEL=qwen2.5-vl` in `.env` for higher extraction accuracy
-    if your hardware supports a larger model (see SYSTEM_DESIGN.md for benchmarks)
+  - **Gemini 2.0/2.5 Flash** — grounded Q&A over the extracted permit text
+  - **Ensemble fallback:** rotates across multiple API keys and model variants
+    (e.g. `gemini-2.5-flash` → `gemini-2.0-flash` → `gemini-1.5-flash`) when a
+    free-tier rate limit (HTTP 429) is hit, instead of the request failing outright
 - **Infra:** Docker Compose (one command to run everything)
 
-## Why Llama 3.2 Vision over Gemma 3
+## Why Gemini, and why an ensemble
 
-Benchmarked document-to-JSON extraction accuracy showed Gemma 3 underperforming
-(~43%) with more hallucinations and omitted fields, while Llama 3.2 Vision handles
-OCR and structured extraction reliably in one pass. Full rationale in
-`SYSTEM_DESIGN.md`.
+Benchmarked document-to-JSON extraction accuracy across Gemini, Gemma 3, and
+Qwen2.5-VL showed Gemini delivering the highest raw accuracy of the models
+evaluated, with reliable single-call OCR + structured extraction and strong
+instruction-following on JSON schemas. The tradeoff is that Gemini's free tier
+enforces strict per-minute and per-day rate limits, which is a real risk during a
+live demo or bursty upload traffic.
+
+To work around this without paying for a higher tier, the backend uses an
+**ensemble/fallback client**: it holds a pool of API keys and model variants,
+and on a 429 (rate limited) or 503 (overloaded) response, it automatically retries
+against the next key/model in the pool with exponential backoff, rather than
+surfacing an error to the user. Full rationale in `SYSTEM_DESIGN.md`.
 
 ## Architecture
 
 ```
 frontend (React) --> backend (FastAPI) --> Postgres
                              |--> Redis (job status)
-                             |--> Ollama (Llama 3.2 Vision: extraction)
-                             |--> Ollama (Llama 3.1: grounded chat)
+                             |--> Gemini ensemble (extraction: vision)
+                             |--> Gemini ensemble (grounded chat: text)
 ```
 
 ## Project Structure
@@ -54,14 +64,14 @@ logistisy-permit-copilot/
 │   │   │   └── chat.py
 │   │   └── services/
 │   │       ├── ocr_service.py        # file validation + checksum dedup
-│   │       ├── extraction_service.py # orchestrates vision-model extraction -> DB
-│   │       └── llm_client.py         # Ollama client (Llama 3.2 Vision + Llama 3.1)
+│   │       ├── extraction_service.py # orchestrates Gemini extraction -> DB
+│   │       └── llm_client.py         # Gemini ensemble client (multi-key/model fallback)
 │   ├── requirements.txt
 │   ├── Dockerfile
 │   └── .env.example
 ├── frontend/
 │   └── src/ (components, api client, theme.css)
-├── docker-compose.yml   # includes db, redis, ollama, backend, frontend
+├── docker-compose.yml   # includes db, redis, backend, frontend
 └── SYSTEM_DESIGN.md
 ```
 
@@ -69,30 +79,27 @@ logistisy-permit-copilot/
 
 ```bash
 cp backend/.env.example backend/.env
+# Add one or more Gemini API keys to .env, comma-separated:
+# GEMINI_API_KEYS=key1,key2,key3
+# GEMINI_MODEL_POOL=gemini-2.5-flash,gemini-2.0-flash,gemini-1.5-flash
 
 docker compose up --build
-
-# In a separate terminal, pull the models into the Ollama container (first run only):
-docker compose exec ollama ollama pull llama3.2-vision
-docker compose exec ollama ollama pull llama3.1
 ```
 
 - Frontend: http://localhost:5173
 - Backend API docs: http://localhost:8000/docs
-- Ollama API: http://localhost:11434
-
-**No GPU?** Remove the `deploy.resources` GPU block in `docker-compose.yml` — Ollama
-will run on CPU (extraction will be slower, ~1-2 minutes per document, still fine
-for a live interview demo with 1-2 sample permits).
 
 ## Core flow
 
 1. Upload a permit PDF/image → `POST /documents`
-2. Llama 3.2 Vision reads the image and extracts structured data in one call
+2. Gemini reads the image and extracts structured data in one call, via the
+   ensemble client (auto-rotates keys/models on rate limit)
 3. Dashboard shows structured conditions, route segments, escort requirements,
    confidence scores
-4. Ask the copilot questions — Llama 3.1 answers are grounded strictly in the
+4. Ask the copilot questions — Gemini answers are grounded strictly in the
    permit's own extracted text
+
+See `SYSTEM_DESIGN.md` for a full flowchart of this pipeline.
 
 ## Edge cases handled (see SYSTEM_DESIGN.md)
 
@@ -102,7 +109,8 @@ for a live interview demo with 1-2 sample permits).
 - Expired permit detection
 - Multiple legal bases per permit
 - Hallucination containment in chat ("not specified in this permit")
-- Ollama unreachable → deterministic fallback instead of a crash
+- Gemini rate-limited (429) → ensemble rotates key/model instead of failing
+- All ensemble members exhausted → deterministic fallback instead of a crash
 - Malformed LLM JSON output → defensive parsing strips markdown fences
 
 ## Next steps beyond MVP
@@ -111,4 +119,5 @@ for a live interview demo with 1-2 sample permits).
 - Auth (JWT) + multi-tenant scoping
 - Background job queue (Celery/RQ) instead of synchronous processing
 - Multi-Bundesland cross-permit validation
-- Streaming Ollama responses for better perceived latency
+- Streaming Gemini responses for better perceived latency
+- Paid-tier Gemini quota once usage outgrows free-tier ensemble capacity
